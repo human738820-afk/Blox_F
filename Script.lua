@@ -1,5 +1,5 @@
 -- =================================================================
--- BLOX FRUITS RAYFIELD HUB (MODIFIED UTILITIES)
+-- BLOX FRUITS RAYFIELD HUB (MODIFIED FEATURES)
 -- =================================================================
 
 local Services = {
@@ -28,7 +28,7 @@ local Window = Rayfield:CreateWindow({
 -- =================================================================
 local State = {
    HitboxExtend = false,
-   HitboxSize = 60, -- Set to max default (60 studs)
+   HitboxSize = 60, -- Max default
    InfEnergy = false,
    Noclip = false,
    SafeFly = false,
@@ -39,18 +39,13 @@ local State = {
    
    -- Combat & Movement
    MobMagnet = false,
-   MobMagnetRadius = 500, -- Set to max default (500 studs)
-   AutoBounty = false,
+   MobMagnetRadius = 500, -- Max default
+   AutoBountyNearLevel = false,
    PlayerESP = false,
-   CustomWalkSpeedEnabled = false,
-   WalkSpeedValue = 32,
-   CustomJumpPowerEnabled = false,
-   JumpPowerValue = 100,
-   JesusMode = true, -- Set to enabled by default
+   JesusMode = true, -- Default on
    
-   -- Fruit Finder & Collector
+   -- Fruit Finder
    AutoCollectFruit = false,
-   AutoStoreFruit = false,
    
    SelectedSea1Island = nil,
    SelectedSea2Island = nil,
@@ -75,6 +70,15 @@ local function GetCharacter(player)
       return char
    end
    return nil
+end
+
+-- Helper to safely extract player level
+local function GetPlayerLevel(player)
+   local data = player:FindFirstChild("Data")
+   if data and data:FindFirstChild("Level") then
+      return data.Level.Value
+   end
+   return 1
 end
 
 -- Safe Remote CommF_ Call
@@ -155,6 +159,37 @@ local function GetFruitHandle(obj)
    return nil
 end
 
+-- Island Highlight Function
+local ActiveIslandHighlight = nil
+local function HighlightIslandPosition(cframe)
+   if ActiveIslandHighlight then
+      ActiveIslandHighlight:Destroy()
+      ActiveIslandHighlight = nil
+   end
+
+   if not cframe then return end
+
+   local part = Instance.new("Part")
+   part.Name = "IslandHighlightMarker"
+   part.Size = Vector3.new(150, 150, 150)
+   part.CFrame = cframe
+   part.Anchored = true
+   part.CanCollide = false
+   part.Transparency = 1
+   part.Parent = Services.Workspace
+
+   local hl = Instance.new("Highlight")
+   hl.Name = "IslandRedHighlight"
+   hl.Adornee = part
+   hl.FillColor = Color3.fromRGB(255, 0, 0)
+   hl.FillTransparency = 0.3
+   hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+   hl.OutlineTransparency = 0
+   hl.Parent = part
+
+   ActiveIslandHighlight = part
+end
+
 -- =================================================================
 -- DATABASES
 -- =================================================================
@@ -198,12 +233,6 @@ local IslandData = {
    }
 }
 
-local function TeleportToIsland(targetCFrame)
-   local char = GetCharacter()
-   if not char or not targetCFrame then return end
-   SafeMoveTo(targetCFrame * CFrame.new(0, 5, 0))
-end
-
 local function GetSortedKeys(tbl)
    local keys = {}
    for k in pairs(tbl) do table.insert(keys, k) end
@@ -222,10 +251,9 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
    local char = GetCharacter()
    if not char then return end
    local hrp = char:FindFirstChild("HumanoidRootPart")
-   local hum = char:FindFirstChild("Humanoid")
    
    -- 1. Noclip Engine
-   if State.Noclip or State.AutoChest or State.SafeFly or State.AutoBounty or State.AutoCollectFruit then
+   if State.Noclip or State.AutoChest or State.SafeFly or State.AutoBountyNearLevel or State.AutoCollectFruit then
       for _, part in ipairs(char:GetDescendants()) do
          if part:IsA("BasePart") then
             part.CanCollide = false
@@ -258,18 +286,7 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
       hrp.CFrame = hrp.CFrame + (camera.CFrame.LookVector * (State.FlySpeed / 50))
    end
 
-   -- 5. WalkSpeed & JumpPower
-   if hum then
-      if State.CustomWalkSpeedEnabled then
-         hum.WalkSpeed = State.WalkSpeedValue
-      end
-      if State.CustomJumpPowerEnabled then
-         hum.UseJumpPower = true
-         hum.JumpPower = State.JumpPowerValue
-      end
-   end
-
-   -- 6. Walk on Water (Jesus Mode) - Always On Engine
+   -- 5. Walk on Water (Jesus Mode)
    if hrp then
       if State.JesusMode then
          WaterPlatform.CanCollide = true
@@ -279,7 +296,7 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
       end
    end
 
-   -- 7. Bring Mobs / Mob Magnet (Uses highest radius value: 500)
+   -- 6. Bring Mobs / Mob Magnet
    if State.MobMagnet and hrp then
       local enemies = Services.Workspace:FindFirstChild("Enemies")
       if enemies then
@@ -325,28 +342,31 @@ Tab1:CreateToggle({
 })
 
 Tab1:CreateToggle({
-   Name = "Auto Bounty / Farm Players",
+   Name = "TP to Player Near My Level",
    CurrentValue = false,
-   Flag = "AutoBountyFlag",
+   Flag = "AutoBountyNearLevelFlag",
    Callback = function(Value)
-      State.AutoBounty = Value
-      ClearThread("AutoBounty")
+      State.AutoBountyNearLevel = Value
+      ClearThread("AutoBountyNearLevel")
 
-      if State.AutoBounty then
-         Threads["AutoBounty"] = task.spawn(function()
-            while State.AutoBounty do
+      if State.AutoBountyNearLevel then
+         Threads["AutoBountyNearLevel"] = task.spawn(function()
+            while State.AutoBountyNearLevel do
                local localChar = GetCharacter()
+               local myLevel = GetPlayerLevel(LocalPlayer)
+
                if localChar then
                   local targetPlayer = nil
-                  local lowestHealth = math.huge
+                  local smallestLevelDiff = math.huge
 
                   for _, p in ipairs(Services.Players:GetPlayers()) do
                      if p ~= LocalPlayer then
                         local pChar = GetCharacter(p)
                         if pChar then
-                           local pHum = pChar:FindFirstChild("Humanoid")
-                           if pHum and pHum.Health > 0 and pHum.Health < lowestHealth then
-                              lowestHealth = pHum.Health
+                           local targetLevel = GetPlayerLevel(p)
+                           local diff = math.abs(myLevel - targetLevel)
+                           if diff < smallestLevelDiff then
+                              smallestLevelDiff = diff
                               targetPlayer = p
                            end
                         end
@@ -360,7 +380,7 @@ Tab1:CreateToggle({
                      end
                   end
                end
-               task.wait(0.1)
+               task.wait(0.5)
             end
          end)
       end
@@ -413,7 +433,7 @@ Tab1:CreateToggle({
 -- =================================================================
 local TabFruit = Window:CreateTab("Fruit Collector", 4483362458)
 
-TabFruit:CreateSection("Fruit Detection")
+TabFruit:CreateSection("Fruit Teleporter")
 
 TabFruit:CreateButton({
    Name = "Teleport to Nearest Fruit",
@@ -442,14 +462,14 @@ TabFruit:CreateButton({
          SafeMoveTo(nearestFruit.CFrame * CFrame.new(0, 3, 0))
          Rayfield:Notify({
             Title = "Fruit Found",
-            Content = "Teleporting to nearest spawned fruit...",
+            Content = "Teleporting to nearest fruit...",
             Duration = 3,
             Image = 4483362458
          })
       else
          Rayfield:Notify({
             Title = "No Fruits Found",
-            Content = "There are no spawned fruits in this server currently.",
+            Content = "There are no spawned fruits in this server.",
             Duration = 3,
             Image = 4483362458
          })
@@ -457,10 +477,8 @@ TabFruit:CreateButton({
    end,
 })
 
-TabFruit:CreateSection("Automated Fruit Farming")
-
 TabFruit:CreateToggle({
-   Name = "Auto Collect Spawned Fruits",
+   Name = "Auto Teleport to Spawned Fruits",
    CurrentValue = false,
    Flag = "AutoCollectFruitFlag",
    Callback = function(Value)
@@ -477,52 +495,13 @@ TabFruit:CreateToggle({
                      if IsFruit(obj) then
                         local handle = GetFruitHandle(obj)
                         if handle then
-                           SafeMoveTo(handle.CFrame * CFrame.new(0, 2, 0))
+                           SafeMoveTo(handle.CFrame * CFrame.new(0, 3, 0))
                            task.wait(0.5)
                         end
                      end
                   end
                end
                task.wait(1)
-            end
-         end)
-      end
-   end,
-})
-
-TabFruit:CreateToggle({
-   Name = "Auto Store Fruits in Inventory",
-   CurrentValue = false,
-   Flag = "AutoStoreFruitFlag",
-   Callback = function(Value)
-      State.AutoStoreFruit = Value
-      ClearThread("AutoStoreFruit")
-
-      if State.AutoStoreFruit then
-         Threads["AutoStoreFruit"] = task.spawn(function()
-            while State.AutoStoreFruit do
-               local backpack = LocalPlayer:FindFirstChild("Backpack")
-               local char = GetCharacter()
-
-               local function TryStore(tool)
-                  if tool and IsFruit(tool) then
-                     FireCommF("StoreFruit", tool.Name, tool)
-                  end
-               end
-
-               if backpack then
-                  for _, item in ipairs(backpack:GetChildren()) do
-                     TryStore(item)
-                  end
-               end
-
-               if char then
-                  for _, item in ipairs(char:GetChildren()) do
-                     TryStore(item)
-                  end
-               end
-
-               task.wait(2)
             end
          end)
       end
@@ -581,61 +560,7 @@ Tab2:CreateToggle({
    end,
 })
 
-Tab2:CreateSection("Movement & Modifiers")
-
-Tab2:CreateToggle({
-   Name = "Enable Custom WalkSpeed",
-   CurrentValue = false,
-   Flag = "CustomWalkSpeedFlag",
-   Callback = function(Value)
-      State.CustomWalkSpeedEnabled = Value
-      if not Value then
-         local char = GetCharacter()
-         if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = 16
-         end
-      end
-   end,
-})
-
-Tab2:CreateSlider({
-   Name = "WalkSpeed Modifier",
-   Range = {16, 250},
-   Increment = 4,
-   Suffix = "speed",
-   CurrentValue = 32,
-   Flag = "WalkSpeedValueFlag",
-   Callback = function(Value)
-      State.WalkSpeedValue = Value
-   end,
-})
-
-Tab2:CreateToggle({
-   Name = "Enable Custom JumpPower",
-   CurrentValue = false,
-   Flag = "CustomJumpPowerFlag",
-   Callback = function(Value)
-      State.CustomJumpPowerEnabled = Value
-      if not Value then
-         local char = GetCharacter()
-         if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.JumpPower = 50
-         end
-      end
-   end,
-})
-
-Tab2:CreateSlider({
-   Name = "JumpPower Modifier",
-   Range = {50, 300},
-   Increment = 10,
-   Suffix = "power",
-   CurrentValue = 100,
-   Flag = "JumpPowerValueFlag",
-   Callback = function(Value)
-      State.JumpPowerValue = Value
-   end,
-})
+Tab2:CreateSection("Movement")
 
 Tab2:CreateToggle({
    Name = "Noclip",
@@ -656,7 +581,7 @@ Tab2:CreateToggle({
 })
 
 Tab2:CreateSlider({
-   Name = "Fly / Movement Speed",
+   Name = "Fly Speed",
    Range = {50, 300},
    Increment = 10,
    Suffix = "studs/s",
@@ -668,9 +593,9 @@ Tab2:CreateSlider({
 })
 
 -- =================================================================
--- TAB 4: ISLAND TELEPORTER
+-- TAB 4: ISLAND HIGHLIGHTER
 -- =================================================================
-local TabTeleport = Window:CreateTab("Islands Teleport", 4483362458)
+local TabTeleport = Window:CreateTab("Islands Highlighter", 4483362458)
 
 TabTeleport:CreateSection("First Sea (Sea 1)")
 TabTeleport:CreateDropdown({
@@ -685,11 +610,17 @@ TabTeleport:CreateDropdown({
 })
 
 TabTeleport:CreateButton({
-   Name = "Teleport to Selected First Sea Island",
+   Name = "Highlight Selected First Sea Island",
    Callback = function()
       local target = State.SelectedSea1Island or sea1Options[1]
       if IslandData.Sea1[target] then
-         TeleportToIsland(IslandData.Sea1[target])
+         HighlightIslandPosition(IslandData.Sea1[target])
+         Rayfield:Notify({
+            Title = "Island Highlighted",
+            Content = "Highlighted " .. target .. " with red color.",
+            Duration = 3,
+            Image = 4483362458
+         })
       end
    end,
 })
@@ -707,11 +638,17 @@ TabTeleport:CreateDropdown({
 })
 
 TabTeleport:CreateButton({
-   Name = "Teleport to Selected Second Sea Island",
+   Name = "Highlight Selected Second Sea Island",
    Callback = function()
       local target = State.SelectedSea2Island or sea2Options[1]
       if IslandData.Sea2[target] then
-         TeleportToIsland(IslandData.Sea2[target])
+         HighlightIslandPosition(IslandData.Sea2[target])
+         Rayfield:Notify({
+            Title = "Island Highlighted",
+            Content = "Highlighted " .. target .. " with red color.",
+            Duration = 3,
+            Image = 4483362458
+         })
       end
    end,
 })
@@ -729,18 +666,31 @@ TabTeleport:CreateDropdown({
 })
 
 TabTeleport:CreateButton({
-   Name = "Teleport to Selected Third Sea Island",
+   Name = "Highlight Selected Third Sea Island",
    Callback = function()
       local target = State.SelectedSea3Island or sea3Options[1]
       if IslandData.Sea3[target] then
-         TeleportToIsland(IslandData.Sea3[target])
+         HighlightIslandPosition(IslandData.Sea3[target])
+         Rayfield:Notify({
+            Title = "Island Highlighted",
+            Content = "Highlighted " .. target .. " with red color.",
+            Duration = 3,
+            Image = 4483362458
+         })
       end
+   end,
+})
+
+TabTeleport:CreateButton({
+   Name = "Clear Island Highlight",
+   Callback = function()
+      HighlightIslandPosition(nil)
    end,
 })
 
 Rayfield:Notify({
    Title = "Hub Executed",
-   Content = "Script loaded with updated UI options.",
+   Content = "Script loaded with all requested changes.",
    Duration = 5,
    Image = 4483362458,
 })
