@@ -1,5 +1,5 @@
 -- =================================================================
--- BLOX FRUITS RAYFIELD HUB (EXTENDED FEATURES)
+-- BLOX FRUITS RAYFIELD HUB (MODIFIED UTILITIES)
 -- =================================================================
 
 local Services = {
@@ -27,9 +27,8 @@ local Window = Rayfield:CreateWindow({
 -- GLOBAL STATE MANAGEMENT
 -- =================================================================
 local State = {
-   KillAura = false,
    HitboxExtend = false,
-   HitboxSize = 25,
+   HitboxSize = 60, -- Set to max default (60 studs)
    InfEnergy = false,
    Noclip = false,
    SafeFly = false,
@@ -38,16 +37,20 @@ local State = {
    AutoStats = false,
    AutoChest = false,
    
-   -- New Features
+   -- Combat & Movement
    MobMagnet = false,
-   MobMagnetRadius = 250,
+   MobMagnetRadius = 500, -- Set to max default (500 studs)
    AutoBounty = false,
    PlayerESP = false,
    CustomWalkSpeedEnabled = false,
    WalkSpeedValue = 32,
    CustomJumpPowerEnabled = false,
    JumpPowerValue = 100,
-   JesusMode = false,
+   JesusMode = true, -- Set to enabled by default
+   
+   -- Fruit Finder & Collector
+   AutoCollectFruit = false,
+   AutoStoreFruit = false,
    
    SelectedSea1Island = nil,
    SelectedSea2Island = nil,
@@ -79,27 +82,6 @@ local function FireCommF(...)
    local commF = Services.ReplicatedStorage:FindFirstChild("CommF_", true)
    if commF and commF:IsA("RemoteFunction") then
       return pcall(function(...) return commF:InvokeServer(...) end, ...)
-   end
-end
-
--- Fixed Fast Attack Handler
-local function FastAttackHit()
-   local char = GetCharacter()
-   if not char then return end
-   
-   local tool = char:FindFirstChildOfClass("Tool")
-   if tool then
-      tool:Activate()
-      local netFolder = Services.ReplicatedStorage:FindFirstChild("Modules")
-      if netFolder and netFolder:FindFirstChild("Net") then
-         local net = netFolder.Net
-         if net:FindFirstChild("RegisterAttack") then
-            net.RegisterAttack:FireServer()
-         end
-         if net:FindFirstChild("RegisterHit") then
-            net.RegisterHit:FireServer()
-         end
-      end
    end
 end
 
@@ -156,6 +138,22 @@ end
 
 for _, p in ipairs(Services.Players:GetPlayers()) do ApplyPlayerESP(p) end
 Services.Players.PlayerAdded:Connect(ApplyPlayerESP)
+
+-- Fruit Helper Functions
+local function IsFruit(obj)
+   return obj:IsA("Tool") or string.find(obj.Name, "Fruit") or string.find(obj.Name, "Blox Fruit")
+end
+
+local function GetFruitHandle(obj)
+   if obj:IsA("Tool") then
+      return obj:FindFirstChild("Handle") or obj:FindFirstChildOfClass("Part")
+   elseif obj:IsA("BasePart") then
+      return obj
+   elseif obj:IsA("Model") then
+      return obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")
+   end
+   return nil
+end
 
 -- =================================================================
 -- DATABASES
@@ -227,7 +225,7 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
    local hum = char:FindFirstChild("Humanoid")
    
    -- 1. Noclip Engine
-   if State.Noclip or State.AutoChest or State.SafeFly or State.AutoBounty then
+   if State.Noclip or State.AutoChest or State.SafeFly or State.AutoBounty or State.AutoCollectFruit then
       for _, part in ipairs(char:GetDescendants()) do
          if part:IsA("BasePart") then
             part.CanCollide = false
@@ -271,7 +269,7 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
       end
    end
 
-   -- 6. Walk on Water (Jesus Mode)
+   -- 6. Walk on Water (Jesus Mode) - Always On Engine
    if hrp then
       if State.JesusMode then
          WaterPlatform.CanCollide = true
@@ -281,7 +279,7 @@ Connections["MainEngine"] = Services.RunService.Stepped:Connect(function()
       end
    end
 
-   -- 7. Bring Mobs / Mob Magnet
+   -- 7. Bring Mobs / Mob Magnet (Uses highest radius value: 500)
    if State.MobMagnet and hrp then
       local enemies = Services.Workspace:FindFirstChild("Enemies")
       if enemies then
@@ -318,42 +316,11 @@ local Tab1 = Window:CreateTab("Combat & Stats", 4483362458)
 Tab1:CreateSection("Combat Mods & Survival")
 
 Tab1:CreateToggle({
-   Name = "Kill Aura / Fast Attack",
-   CurrentValue = false,
-   Flag = "KillAuraFlag",
-   Callback = function(Value)
-      State.KillAura = Value
-      ClearThread("KillAura")
-
-      if State.KillAura then
-         Threads["KillAura"] = task.spawn(function()
-            while State.KillAura do
-               FastAttackHit()
-               task.wait(0.05)
-            end
-         end)
-      end
-   end,
-})
-
-Tab1:CreateToggle({
    Name = "Bring Mobs / Mob Magnet",
    CurrentValue = false,
    Flag = "MobMagnetFlag",
    Callback = function(Value)
       State.MobMagnet = Value
-   end,
-})
-
-Tab1:CreateSlider({
-   Name = "Mob Magnet Radius",
-   Range = {50, 500},
-   Increment = 25,
-   Suffix = "studs",
-   CurrentValue = 250,
-   Flag = "MobMagnetRadiusFlag",
-   Callback = function(Value)
-      State.MobMagnetRadius = Value
    end,
 })
 
@@ -390,7 +357,6 @@ Tab1:CreateToggle({
                      local targetHrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
                      if targetHrp then
                         SafeMoveTo(targetHrp.CFrame * CFrame.new(0, 3, 3))
-                        FastAttackHit()
                      end
                   end
                end
@@ -407,18 +373,6 @@ Tab1:CreateToggle({
    Flag = "HitboxFlag",
    Callback = function(Value)
       State.HitboxExtend = Value
-   end,
-})
-
-Tab1:CreateSlider({
-   Name = "Hitbox Size",
-   Range = {10, 60},
-   Increment = 5,
-   Suffix = "studs",
-   CurrentValue = 25,
-   Flag = "HitboxSizeFlag",
-   Callback = function(Value)
-      State.HitboxSize = Value
    end,
 })
 
@@ -455,7 +409,128 @@ Tab1:CreateToggle({
 })
 
 -- =================================================================
--- TAB 2: UTILITIES & WORLD COLLECTORS
+-- TAB 2: FRUIT COLLECTOR
+-- =================================================================
+local TabFruit = Window:CreateTab("Fruit Collector", 4483362458)
+
+TabFruit:CreateSection("Fruit Detection")
+
+TabFruit:CreateButton({
+   Name = "Teleport to Nearest Fruit",
+   Callback = function()
+      local char = GetCharacter()
+      if not char then return end
+      local hrp = char.HumanoidRootPart
+
+      local nearestFruit = nil
+      local shortestDistance = math.huge
+
+      for _, obj in ipairs(Services.Workspace:GetChildren()) do
+         if IsFruit(obj) then
+            local handle = GetFruitHandle(obj)
+            if handle then
+               local dist = (hrp.Position - handle.Position).Magnitude
+               if dist < shortestDistance then
+                  shortestDistance = dist
+                  nearestFruit = handle
+               end
+            end
+         end
+      end
+
+      if nearestFruit then
+         SafeMoveTo(nearestFruit.CFrame * CFrame.new(0, 3, 0))
+         Rayfield:Notify({
+            Title = "Fruit Found",
+            Content = "Teleporting to nearest spawned fruit...",
+            Duration = 3,
+            Image = 4483362458
+         })
+      else
+         Rayfield:Notify({
+            Title = "No Fruits Found",
+            Content = "There are no spawned fruits in this server currently.",
+            Duration = 3,
+            Image = 4483362458
+         })
+      end
+   end,
+})
+
+TabFruit:CreateSection("Automated Fruit Farming")
+
+TabFruit:CreateToggle({
+   Name = "Auto Collect Spawned Fruits",
+   CurrentValue = false,
+   Flag = "AutoCollectFruitFlag",
+   Callback = function(Value)
+      State.AutoCollectFruit = Value
+      ClearThread("AutoCollectFruit")
+
+      if State.AutoCollectFruit then
+         Threads["AutoCollectFruit"] = task.spawn(function()
+            while State.AutoCollectFruit do
+               local char = GetCharacter()
+               if char then
+                  for _, obj in ipairs(Services.Workspace:GetChildren()) do
+                     if not State.AutoCollectFruit then break end
+                     if IsFruit(obj) then
+                        local handle = GetFruitHandle(obj)
+                        if handle then
+                           SafeMoveTo(handle.CFrame * CFrame.new(0, 2, 0))
+                           task.wait(0.5)
+                        end
+                     end
+                  end
+               end
+               task.wait(1)
+            end
+         end)
+      end
+   end,
+})
+
+TabFruit:CreateToggle({
+   Name = "Auto Store Fruits in Inventory",
+   CurrentValue = false,
+   Flag = "AutoStoreFruitFlag",
+   Callback = function(Value)
+      State.AutoStoreFruit = Value
+      ClearThread("AutoStoreFruit")
+
+      if State.AutoStoreFruit then
+         Threads["AutoStoreFruit"] = task.spawn(function()
+            while State.AutoStoreFruit do
+               local backpack = LocalPlayer:FindFirstChild("Backpack")
+               local char = GetCharacter()
+
+               local function TryStore(tool)
+                  if tool and IsFruit(tool) then
+                     FireCommF("StoreFruit", tool.Name, tool)
+                  end
+               end
+
+               if backpack then
+                  for _, item in ipairs(backpack:GetChildren()) do
+                     TryStore(item)
+                  end
+               end
+
+               if char then
+                  for _, item in ipairs(char:GetChildren()) do
+                     TryStore(item)
+                  end
+               end
+
+               task.wait(2)
+            end
+         end)
+      end
+   end,
+})
+
+-- =================================================================
+-- TAB 3: UTILITIES & VISUALS
 -- =================================================================
 local Tab2 = Window:CreateTab("Utilities & Visuals", 4483362458)
 
@@ -563,15 +638,6 @@ Tab2:CreateSlider({
 })
 
 Tab2:CreateToggle({
-   Name = "Walk on Water (Jesus Mode)",
-   CurrentValue = false,
-   Flag = "JesusModeFlag",
-   Callback = function(Value)
-      State.JesusMode = Value
-   end,
-})
-
-Tab2:CreateToggle({
    Name = "Noclip",
    CurrentValue = false,
    Flag = "NoclipFlag",
@@ -602,7 +668,7 @@ Tab2:CreateSlider({
 })
 
 -- =================================================================
--- TAB 3: ISLAND TELEPORTER
+-- TAB 4: ISLAND TELEPORTER
 -- =================================================================
 local TabTeleport = Window:CreateTab("Islands Teleport", 4483362458)
 
@@ -674,7 +740,7 @@ TabTeleport:CreateButton({
 
 Rayfield:Notify({
    Title = "Hub Executed",
-   Content = "Script loaded with all requested features.",
+   Content = "Script loaded with updated UI options.",
    Duration = 5,
    Image = 4483362458,
 })
